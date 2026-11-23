@@ -1,0 +1,33 @@
+<div class="card">
+  <div class="close" onclick="closeCard()">
+    <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg>
+  </div>
+
+  <img src="/hero.png">
+
+  <h1>Join our newsletter</h1>
+  <h4>Get weekly frontend tips</h4>
+
+  <video src="/promo.mp4" autoplay loop></video>
+
+  <form>
+    <input type="email" placeholder="Email" style="border-color: red; outline: none;">
+
+    <select>
+      <option>Weekly</option>
+      <option>Monthly</option>
+    </select>
+
+    <input type="checkbox" id="terms"> I agree to the terms
+
+    <div class="btn text-gray-400" tabindex="3" onclick="submitForm()">
+      Sign up
+    </div>
+  </form>
+
+  <p>
+    Read our privacy policy <a href="/privacy">here</a>.
+  </p>
+
+  <a href="/help" aria-hidden="true">Need help?</a>
+</div>

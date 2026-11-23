@@ -1,6 +1,6 @@
 # A11y Reviewer
 
-A small Next.js app that reviews frontend component code for accessibility issues against **WCAG 2.1 AA**. Paste a component and Claude returns a list of issues. Each issue names the WCAG success criterion, its severity, the offending code, the impact on users, and a corrected snippet.
+A small Next.js app that reviews frontend component code for accessibility issues against **WCAG 2.1 AA**. Paste a component and Claude streams back a list of issues. Each issue names the WCAG success criterion, its severity, the offending code, the impact on users, and a corrected snippet.
 
 You can use it through the web UI or from the command line via its HTTP API.
 
@@ -33,15 +33,16 @@ Requirements: Node.js 20+ and an [Anthropic API key](https://console.anthropic.c
 ## Using the UI
 
 1. Open [http://localhost:3000](http://localhost:3000).
-2. Paste a component (JSX, TSX, HTML, etc.) into the **Paste a component** text area.
+2. Paste a component (JSX, TSX, HTML, etc.) into the **Paste a component** text area, or click **Load sample** to load `fixtures/signup-card.html`, a test component with 13 known issues.
 3. Click **Review**. The button shows "Reviewing…" while the request runs.
-4. Results appear under **Issues (n)**. Each entry shows:
-   - the WCAG criterion and severity (`high`, `medium` or `low`)
+4. Issues appear one by one as they stream in, sorted from high to low severity. Each entry shows:
+   - the WCAG criterion and a severity badge (`high`, `medium` or `low`)
    - the offending line of code
    - a description of the problem
    - a suggested fix
+5. Use the **Show severity** checkboxes to filter the list. Each checkbox shows how many issues have that severity.
 
-If no issues are found, the page shows "No issues found". Errors appear in red above the results. Status changes are also announced to screen readers.
+If no issues are found, the page shows "No issues found". Errors appear in red above the results. If the review was cut off before it finished, a notice says some issues may be missing. Screen readers announce when a review starts and the final issue count.
 
 ## Using the command line
 
@@ -55,51 +56,39 @@ curl -X POST http://localhost:3000/api/review \
   -d '{"code": "<div onClick={save}><img src=\"icon.png\" /></div>"}'
 ```
 
-**Review a file:** use [`jq`](https://jqlang.org/) to wrap the file contents in JSON safely:
+**Review a file:** use [`jq`](https://jqlang.org/) to wrap the file contents in JSON safely. `curl -N` prints each issue as soon as it arrives:
 
 ```bash
 jq -Rs '{code: .}' src/components/Button.tsx \
-  | curl -s http://localhost:3000/api/review \
+  | curl -sN http://localhost:3000/api/review \
       -H "Content-Type: application/json" \
-      -d @- \
-  | jq
+      -d @-
 ```
 
-**Response (200):** for the example above, the response looks like this (the model's wording varies between runs):
+**Response (200):** the body is streamed as plain text (`text/plain`) in [JSON Lines](https://jsonlines.org/) format: one issue object per line, ordered from most to least severe. For the first example above, the response looks like this (the model's wording varies between runs):
 
-```json
-{
-  "issues": [
-    {
-      "criterion": "2.1.1 Keyboard",
-      "severity": "high",
-      "line": "<div onClick={save}>",
-      "problem": "A div with a click handler can't be focused or activated with the keyboard, so keyboard and screen reader users can't save.",
-      "fix": "<button type=\"button\" onClick={save}>...</button>"
-    },
-    {
-      "criterion": "1.1.1 Non-text Content",
-      "severity": "high",
-      "line": "<img src=\"icon.png\" />",
-      "problem": "The image has no alt text, so the control has no accessible name.",
-      "fix": "<img src=\"icon.png\" alt=\"Save\" />"
-    }
-  ]
-}
+```
+{"criterion": "2.1.1 Keyboard", "severity": "high", "line": "<div onClick={save}>", "problem": "A div with a click handler can't be focused or activated with the keyboard, so keyboard and screen reader users can't save.", "fix": "<button type=\"button\" onClick={save}>...</button>"}
+{"criterion": "1.1.1 Non-text Content", "severity": "high", "line": "<img src=\"icon.png\" />", "problem": "The image has no alt text, so the control has no accessible name.", "fix": "<img src=\"icon.png\" alt=\"Save\" />"}
 ```
 
-An empty `issues` array means no issues were found.
+Each object has the fields `criterion`, `severity` (`high`, `medium` or `low`), `line`, `problem` and `fix`. An empty body means no issues were found. To pretty-print the issues, pipe the output to `jq`.
+
+The model output is not validated on the server. Skip blank lines, code fences and lines that aren't valid JSON, as the UI does.
+
+If the model reached its output token limit, the stream ends with a `{"truncated":true}` line. That line means the list is incomplete.
 
 **Errors:**
 
 | Status | Body | Cause |
 | ------ | ---- | ----- |
 | 400 | `{ "error": "No code provided" }` | `code` is missing, not a string, or blank. |
-| 502 | `{ "error": "Could not parse response", "raw": "..." }` | The model's reply was not valid JSON. `raw` holds the reply text. |
+
+If the Claude API fails after the stream has started, the status is already 200. The connection then closes early without a final newline, and the last line may be incomplete.
 
 ## How it works
 
-- `app/page.tsx` contains the client-side UI.
-- `app/api/review/route.ts` sends the code to Claude (`claude-sonnet-5-5`) with a system prompt that asks for a WCAG 2.1 AA review as JSON. The route then returns the parsed issues.
+- `app/page.tsx` contains the client-side UI. It reads the response stream and parses each complete line as one issue, so cards render while the review is still running.
+- `app/api/review/route.ts` streams the code to Claude (`claude-sonnet-5-5`) with a system prompt that asks for a WCAG 2.1 AA review as JSON Lines. The route forwards text to the client as it arrives. If the client disconnects, the route aborts the request to Claude.
 
 The reviewer reports only issues it can see in the code. It does not guess about things like colour contrast from class names, so a clean result is not a full accessibility audit.

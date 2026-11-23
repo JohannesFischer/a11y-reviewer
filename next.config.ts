@@ -13,6 +13,10 @@ const nextConfig: NextConfig = {
         loaders: ["@tailwindcss/turbopack"],
         as: "*.css",
       },
+      // Import fixtures as plain strings (used by the "Load sample" button)
+      "*.html": {
+        type: "text",
+      },
     },
   },
 };
